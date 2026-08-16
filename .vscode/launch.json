@@ -1,0 +1,18 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "project",
+      "type": "python",
+      "request": "attach",
+      "port": 9002,
+      "host": "localhost",
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/project",
+          "remoteRoot": "/project"
+        }
+      ]
+    }
+  ]
+}

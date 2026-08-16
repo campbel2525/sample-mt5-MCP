@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  app:
+    restart: "no"
+    tty: true
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    volumes:
+      - ./project:/project

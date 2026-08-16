@@ -1,0 +1,96 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" version="26.0.3">
+  <diagram name="構成図" id="JHi6k7znKY4BV6qRiYZA">
+    <mxGraphModel grid="0" page="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-29" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="76" y="277" width="1146" height="435" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-9" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="94" y="334" width="560" height="345" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-3" value="Windows" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="74" y="246" width="67" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-4" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="832" y="329" width="132" height="111" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-6" value="`/mnt/c/Users/campbel/AppData/Roaming/MetaQuotes/Terminal/Common/Files`" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="107" y="632" width="433" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-10" value="WSL" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="94" y="303" width="44" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-13" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="114" y="374" width="513" height="128" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-14" value="Docker" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="114" y="340" width="56" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-15" target="akhOxHfPHpx6z1eDbrOa-17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-39" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.25;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-15" target="akhOxHfPHpx6z1eDbrOa-38">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="192" y="230" />
+              <mxPoint x="334" y="230" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-15" value="Python" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="126" y="403" width="131" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-17" value="/mt5_common" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="485" y="417.5" width="131" height="33" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.111;entryY=0.078;entryDx=0;entryDy=0;entryPerimeter=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-17" target="akhOxHfPHpx6z1eDbrOa-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-20" target="akhOxHfPHpx6z1eDbrOa-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-20" value="`C:\Users\&amp;lt;ユーザー名&amp;gt;\AppData\Roaming\MetaQuotes\Terminal\Common\Files" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="748" y="632" width="433" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-24" value="チャートの情報のデータを随時ファイルで作成" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="886" y="497" width="270" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-25" value="マウント" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="665" y="617" width="66" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-26" value="マウント" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="163" y="549" width="66" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-28" value="定期的に&lt;div&gt;チャートの情報を読み込む&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="279" y="388" width="162" height="41" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;startArrow=classic;startFill=1;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-30" target="akhOxHfPHpx6z1eDbrOa-4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-30" value="取引所" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="832" y="42" width="132" height="111" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-32" value="同期&lt;div&gt;この部分は今回は開発はしていません&lt;/div&gt;" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="903" y="185" width="221" height="41" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-33" value="MT5" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="832" y="299" width="42" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-35" value="MQL" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="864" y="357" width="68" height="55" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-37" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.346;entryY=0.042;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="akhOxHfPHpx6z1eDbrOa-35" target="akhOxHfPHpx6z1eDbrOa-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-38" value="Slack" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="301" y="42" width="132" height="111" as="geometry" />
+        </mxCell>
+        <mxCell id="akhOxHfPHpx6z1eDbrOa-40" value="通知を出す" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" vertex="1" parent="1">
+          <mxGeometry x="338" y="192.5" width="78" height="26" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
