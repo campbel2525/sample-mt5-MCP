@@ -9,3 +9,4 @@ services:
       dockerfile: ./Dockerfile
     volumes:
       - ./project:/project
+      - ./data:/data

@@ -11,3 +11,4 @@ __pycache__
 .venv
 repomix-output.xml
 .pytest_cache
+data/タスク/2_Gold売買検証/1_Goldの売買タイミング/

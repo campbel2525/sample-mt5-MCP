@@ -90,6 +90,100 @@ docker compose exec app python scripts/technical_chart.py \
 
 指定した移動平均期間とRSI期間に対して履歴が不足している場合は、`判定不可（データ不足）`または`算出不可（データ不足）`を出力します。
 
+## 3. 複数時間足の全履歴から移動平均クロスを抽出する
+
+`scripts/find_ma_crosses.py`は、MCPから取得した複数時間足の履歴を一括で読み込み、各バーのSMA5、SMA20、SMA60を計算します。
+SMA5とSMA20、SMA5とSMA60について、ゴールデンクロスとデッドクロスが成立したバーをJSONで出力します。
+
+入力JSONは次の形式です。
+
+```json
+{
+  "datasets": [
+    {
+      "symbol": "GOLD",
+      "period": "M30",
+      "history": [
+        {
+          "time": "2026.08.25 12:00:00",
+          "open": 3400.0,
+          "high": 3402.0,
+          "low": 3398.0,
+          "close": 3401.0,
+          "tick_volume": 100,
+          "spread": 20
+        }
+      ]
+    }
+  ]
+}
+```
+
+`datasets`にはM5、M15、M30など複数の時間足を指定できます。
+2年間の開始直後からSMA60のクロスを判定する場合は、`history`に走査開始日時より前の確定足を60本以上含め、`--scan-from`で出力対象を2年間に絞ります。
+
+```bash
+docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py \
+  --input /project/market_history.json \
+  --output /project/ma_crosses.json \
+  --ma-periods 5,20,60 \
+  --ma-method SMA \
+  --applied-price CLOSE \
+  --end-bar-shift 1 \
+  --scan-from "2024.08.26 00:00:00" \
+  --scan-to "2026.08.26 00:00:00"
+```
+
+- `--end-bar-shift 1`: 入力履歴の末尾1本を未確定足として走査対象から除外
+- `--scan-from`: 出力対象の開始日時。この日時を含む
+- `--scan-to`: 出力対象の終了日時。この日時を含まない
+- `--input -`: ファイルの代わりに標準入力からJSONを読み込む
+- `--output -`: ファイルの代わりに標準出力へJSONを出力する
+- `--run-directory PATH`: 指定フォルダを作成し、入力を`market_history.json`、結果を`ma_crosses.json`として保存する
+- `--run-directory`: パスを省略すると`data/タスク/2_Gold売買検証/1_Goldの売買タイミング/YYYYMMDDHHmm`を作成する
+
+### 売却条件を一括検証する
+
+`--backtest`を指定すると、M30のSMA5がSMA60をゴールデンクロスした買いシグナルに対し、次の62通りの売却条件を一括検証します。
+
+- M5、M15、M30のSMA5対SMA20またはSMA60のデッドクロス: 6通り
+- 0.25%、0.5%、0.75%、1%、1.5%、2%、3%、5%の利確: 8通り
+- デッドクロスまたは利確の先着条件: 48通り
+
+```bash
+docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py \
+  --input /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608260202/market_history.json \
+  --run-directory /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608260202 \
+  --ma-periods 5,20,60 \
+  --ma-method SMA \
+  --applied-price CLOSE \
+  --end-bar-shift 1 \
+  --scan-from "2024.08.26 00:00:00" \
+  --scan-to "2026.08.26 00:00:00" \
+  --backtest \
+  --profit-targets 0.25,0.5,0.75,1,1.5,2,3,5 \
+  --point-size 0.01 \
+  --digits 2 \
+  --cost-mode none \
+  --split-ratio 0.7 \
+  --expected-symbol GOLD \
+  --overwrite
+```
+
+実行フォルダには次のファイルを保存します。
+
+- `market_history.json`: 入力したM5、M15、M30の市場データ
+- `ma_crosses.json`: 各時間足で検出したクロス
+- `backtest_trades.json`: 戦略別の全取引明細
+- `backtest_summary.json`: 全期間、期間前半70%、期間後半30%の集計と順位
+
+クロスは確定足で判定し、売買価格には次に存在する同時間足の始値を使います。
+利確はM5の高値で到達を判定し、窓開け時はM5の始値、それ以外は目標価格で約定したものとして扱います。
+同一戦略では同時に1ポジションだけ保有し、保有中の追加買いシグナルは無視します。
+今回の検証ではスプレッド、手数料、スリッページ、スワップを含めません。
+M5、M15、M30の共通範囲だけを検証し、入力データを識別するSHA-256を各結果ファイルへ記録します。
+既存ファイルは`--overwrite`を指定した場合だけ置き換えます。
+
 # 実行プロンプト
 
 `PROMPT.md`を参照する
