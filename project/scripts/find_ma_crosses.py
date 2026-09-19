@@ -110,13 +110,6 @@ def _digits(value: str) -> int:
     return number
 
 
-def _split_ratio(value: str) -> float:
-    number = _positive_float(value)
-    if number >= 1:
-        raise argparse.ArgumentTypeError("0より大きく1より小さい数値で指定してください")
-    return number
-
-
 def _parse_profit_targets(value: str) -> Sequence[float]:
     try:
         targets = tuple(float(item.strip()) for item in value.split(","))
@@ -200,12 +193,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--backtest",
         action="store_true",
-        help="M30の買いシグナルに対する売却条件を検証します。",
+        help="M30の買いシグナルに対する売却条件62通りを検証します。",
     )
     parser.add_argument(
-        "--moving-average-exits-only",
+        "--compare-entry-periods",
         action="store_true",
-        help="M5、M15、M30のデッドクロス6条件だけを検証します。",
+        help=(
+            "M30とH1のSMAゴールデンクロス買いについて、"
+            "移動平均線の売却条件14通りを比較します。"
+        ),
     )
     parser.add_argument(
         "--profit-targets",
@@ -233,13 +229,6 @@ def _build_parser() -> argparse.ArgumentParser:
         choices=("none", "spread", "both"),
         default="none",
         help="集計するコスト条件（既定: none）",
-    )
-    parser.add_argument(
-        "--split-ratio",
-        type=_split_ratio,
-        default=0.7,
-        metavar="RATIO",
-        help="期間を前半と後半に分ける位置（既定: 0.7）",
     )
     parser.add_argument(
         "--expected-symbol",
@@ -499,6 +488,8 @@ def _validate_output_targets(
 
 
 def _validate_backtest_settings(args: argparse.Namespace) -> None:
+    if args.compare_entry_periods and not args.backtest:
+        raise ValueError("--compare-entry-periods には --backtest の指定が必要です")
     if not args.backtest:
         return
     if args.run_directory is None:
@@ -559,16 +550,15 @@ def main(argv: Optional[List[str]] = None) -> int:
                 moving_average_method=args.ma_method,
                 applied_price=args.applied_price,
                 profit_targets=args.profit_targets,
-                moving_average_exits_only=args.moving_average_exits_only,
                 point_size=args.point_size,
                 digits=args.digits,
                 cost_mode=args.cost_mode,
                 end_bar_shift=args.end_bar_shift,
                 scan_from=args.scan_from,
                 scan_to=args.scan_to,
-                split_ratio=args.split_ratio,
                 expected_symbol=args.expected_symbol,
                 input_sha256=input_sha256,
+                compare_entry_periods=args.compare_entry_periods,
             )
             writes.extend(
                 (

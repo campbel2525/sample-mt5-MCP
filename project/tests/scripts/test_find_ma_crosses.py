@@ -260,19 +260,25 @@ def test_main_backtest_writes_all_result_files(tmp_path: Path) -> None:
     assert crosses["input_sha256"] == summary["input_sha256"]
     assert summary["strategy_count"] == 62
     assert summary["settings"]["entry_condition"] == "M30_SMA2_SMA4_golden_cross"
+    assert (
+        summary["settings"]["entry_filter_condition"]
+        == "M5_SMA2_gte_SMA4_and_M15_SMA2_gte_SMA4_at_entry"
+    )
     assert summary["settings"]["cost_mode"] == "none"
+    assert set(summary["strategies"][0]["periods"]) == {"overall"}
     assert "spread_adjusted" not in summary["strategies"][0]["periods"]["overall"]
 
 
-def test_main_backtest_supports_moving_average_exits_only(tmp_path: Path) -> None:
+def test_main_compares_m30_and_h1_entry_periods(tmp_path: Path) -> None:
     input_path = tmp_path / "source.json"
-    run_directory = tmp_path / "data" / "find_ma_crosses" / "202608260203"
+    run_directory = tmp_path / "data" / "find_ma_crosses" / "202608271600"
     closes = [10.0, 10.0, 10.0, 10.0, 20.0, 100.0, 100.0, 100.0]
     payload = {
         "datasets": [
             _dataset("M5", closes),
             _dataset("M15", closes),
             _dataset("M30", closes),
+            _dataset("H1", closes),
         ]
     }
     _write_payload(input_path, payload)
@@ -286,7 +292,7 @@ def test_main_backtest_supports_moving_average_exits_only(tmp_path: Path) -> Non
             "--ma-periods",
             "2,3,4",
             "--backtest",
-            "--moving-average-exits-only",
+            "--compare-entry-periods",
         ]
     )
 
@@ -297,13 +303,12 @@ def test_main_backtest_supports_moving_average_exits_only(tmp_path: Path) -> Non
     summary = json.loads(
         (run_directory / "backtest_summary.json").read_text(encoding="utf-8")
     )
-    assert summary["strategy_count"] == 6
-    assert summary["settings"]["exit_strategy_mode"] == "moving_average_only"
-    assert all("rank" not in strategy for strategy in summary["strategies"])
-    assert all(
-        "compounded_return_pct" not in strategy["periods"]["overall"]["gross"]
-        for strategy in summary["strategies"]
-    )
+    assert summary["strategy_count"] == 14
+    assert set(summary["entry_signal_counts"]) == {"M30", "H1"}
+    assert {strategy["entry_period"] for strategy in summary["strategies"]} == {
+        "M30",
+        "H1",
+    }
 
 
 def test_main_does_not_overwrite_existing_result_without_flag(

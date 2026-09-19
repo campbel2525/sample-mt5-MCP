@@ -119,7 +119,7 @@ SMA5とSMA20、SMA5とSMA60について、ゴールデンクロスとデッド�
 }
 ```
 
-`datasets`にはM5、M15、M30など複数の時間足を指定できます。
+`datasets`にはM5、M15、M30、H1など複数の時間足を指定できます。
 2年間の開始直後からSMA60のクロスを判定する場合は、`history`に走査開始日時より前の確定足を60本以上含め、`--scan-from`で出力対象を2年間に絞ります。
 
 ```bash
@@ -146,14 +146,16 @@ docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py 
 
 `--backtest`を指定すると、M30のSMA5がSMA60をゴールデンクロスした買いシグナルに対し、次の62通りの売却条件を一括検証します。
 
+買い時刻に、直前に確定したM5またはM15のどちらかでSMA5がSMA60を下回っている場合、その買いシグナルは使用しません。
+
 - M5、M15、M30のSMA5対SMA20またはSMA60のデッドクロス: 6通り
 - 0.25%、0.5%、0.75%、1%、1.5%、2%、3%、5%の利確: 8通り
 - デッドクロスまたは利確の先着条件: 48通り
 
 ```bash
 docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py \
-  --input /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608260202/market_history.json \
-  --run-directory /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608260202 \
+  --input /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608271557/market_history.json \
+  --run-directory /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608271557 \
   --ma-periods 5,20,60 \
   --ma-method SMA \
   --applied-price CLOSE \
@@ -165,7 +167,6 @@ docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py 
   --point-size 0.01 \
   --digits 2 \
   --cost-mode none \
-  --split-ratio 0.7 \
   --expected-symbol GOLD \
   --overwrite
 ```
@@ -175,7 +176,32 @@ docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py 
 - `market_history.json`: 入力したM5、M15、M30の市場データ
 - `ma_crosses.json`: 各時間足で検出したクロス
 - `backtest_trades.json`: 戦略別の全取引明細
-- `backtest_summary.json`: 全期間、期間前半70%、期間後半30%の集計と順位
+- `backtest_summary.json`: 全期間の集計と順位
+
+### M30とH1の買い条件を比較する
+
+`--compare-entry-periods`を追加すると、次の14通りだけを検証します。
+
+- M30のSMA5対SMA60ゴールデンクロスで買い、M5、M15、M30のSMA5対SMA20またはSMA60デッドクロスで売却: 6通り
+- H1のSMA5対SMA60ゴールデンクロスで買い、M5、M15、M30、H1のSMA5対SMA20またはSMA60デッドクロスで売却: 8通り
+- M30買いは、直前に確定したM5またはM15で`SMA5 < SMA60`の場合に見送る
+- H1買いは、直前に確定したM5、M15、M30のいずれかで`SMA5 < SMA60`の場合に見送る
+
+```bash
+docker compose exec -T app /project/.venv/bin/python scripts/find_ma_crosses.py \
+  --input /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608271557/market_history.json \
+  --run-directory /data/タスク/2_Gold売買検証/1_Goldの売買タイミング/202608271557 \
+  --ma-periods 5,20,60 \
+  --ma-method SMA \
+  --applied-price CLOSE \
+  --end-bar-shift 1 \
+  --scan-from "2024.08.26 00:00:00" \
+  --scan-to "2026.08.26 00:00:00" \
+  --backtest \
+  --compare-entry-periods \
+  --cost-mode none \
+  --overwrite
+```
 
 クロスは確定足で判定し、売買価格には次に存在する同時間足の始値を使います。
 利確はM5の高値で到達を判定し、窓開け時はM5の始値、それ以外は目標価格で約定したものとして扱います。

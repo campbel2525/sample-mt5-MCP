@@ -18,7 +18,8 @@ from services.cross_scan_service import CrossScanResult, MovingAverageCross
 
 DATETIME_FORMAT = "%Y.%m.%d %H:%M:%S"
 REQUIRED_PERIODS = ("M5", "M15", "M30")
-PERIOD_MINUTES = {"M5": 5, "M15": 15, "M30": 30}
+ENTRY_COMPARISON_PERIODS = ("M5", "M15", "M30", "H1")
+PERIOD_MINUTES = {"M5": 5, "M15": 15, "M30": 30, "H1": 60}
 DEFAULT_PROFIT_TARGETS = (0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0)
 
 
@@ -35,6 +36,7 @@ class PreparedDataset:
 @dataclass(frozen=True)
 class ExitStrategy:
     strategy_id: str
+    entry_period: str
     death_period: Optional[str]
     comparison_period: Optional[int]
     profit_target_pct: Optional[float]
@@ -73,59 +75,74 @@ def run_exit_backtest(
     moving_average_method: str = "SMA",
     applied_price: str = "CLOSE",
     profit_targets: Sequence[float] = DEFAULT_PROFIT_TARGETS,
-    moving_average_exits_only: bool = False,
     point_size: float = 0.01,
     digits: int = 2,
     cost_mode: str = "none",
     end_bar_shift: int = 1,
     scan_from: Optional[datetime] = None,
     scan_to: Optional[datetime] = None,
-    split_ratio: float = 0.7,
     expected_symbol: str = "GOLD",
     input_sha256: Optional[str] = None,
+    compare_entry_periods: bool = False,
 ) -> BacktestOutput:
-    """M30の買いシグナルに対して全売却戦略を比較する。"""
-    active_profit_targets: Sequence[float] = (
-        () if moving_average_exits_only else profit_targets
-    )
+    """移動平均線の買いシグナルに対して売却戦略を比較する。"""
     short_period, middle_period, long_period = _validate_options(
         moving_average_periods=moving_average_periods,
         moving_average_method=moving_average_method,
         applied_price=applied_price,
-        profit_targets=active_profit_targets,
+        profit_targets=profit_targets,
         point_size=point_size,
         digits=digits,
         cost_mode=cost_mode,
         end_bar_shift=end_bar_shift,
         scan_from=scan_from,
         scan_to=scan_to,
-        split_ratio=split_ratio,
         expected_symbol=expected_symbol,
+    )
+    required_periods = (
+        ENTRY_COMPARISON_PERIODS if compare_entry_periods else REQUIRED_PERIODS
     )
     prepared = _prepare_datasets(
         datasets=datasets,
         expected_symbol=expected_symbol,
         end_bar_shift=end_bar_shift,
+        required_periods=required_periods,
     )
     cross_map = _validate_cross_results(
         cross_results=cross_results,
         expected_symbol=expected_symbol,
+        required_periods=required_periods,
     )
     effective_from, effective_to, coverage, warnings = _effective_range(
         prepared=prepared,
         long_period=long_period,
         scan_from=scan_from,
         scan_to=scan_to,
+        required_periods=required_periods,
     )
     force_exit = _force_exit_candidate(prepared["M5"], effective_to)
-    entry_candidates = _entry_candidates(
-        dataset=prepared["M30"],
-        crosses=cross_map["M30"].crosses,
-        short_period=short_period,
-        entry_comparison_period=long_period,
-        effective_from=effective_from,
-        force_exit_time=force_exit.execution_time,
-    )
+    entry_periods = ("M30", "H1") if compare_entry_periods else ("M30",)
+    confirmation_periods = {
+        "M30": ("M5", "M15"),
+        "H1": ("M5", "M15", "M30"),
+    }
+    entry_candidate_results = {
+        period: _entry_candidates(
+            dataset=prepared[period],
+            confirmation_datasets=tuple(
+                prepared[item] for item in confirmation_periods[period]
+            ),
+            crosses=cross_map[period].crosses,
+            short_period=short_period,
+            entry_comparison_period=long_period,
+            effective_from=effective_from,
+            force_exit_time=force_exit.execution_time,
+        )
+        for period in entry_periods
+    }
+    entry_candidates = {
+        period: result[0] for period, result in entry_candidate_results.items()
+    }
     death_candidates = _death_candidates(
         prepared=prepared,
         cross_map=cross_map,
@@ -133,14 +150,28 @@ def run_exit_backtest(
         comparison_periods=(middle_period, long_period),
         effective_from=effective_from,
         force_exit_time=force_exit.execution_time,
+        periods=required_periods,
     )
-    strategies = _build_strategies(
-        short_period=short_period,
-        comparison_periods=(middle_period, long_period),
-        profit_targets=active_profit_targets,
+    strategies = (
+        _build_entry_comparison_strategies(
+            short_period=short_period,
+            comparison_periods=(middle_period, long_period),
+        )
+        if compare_entry_periods
+        else _build_strategies(
+            short_period=short_period,
+            comparison_periods=(middle_period, long_period),
+            profit_targets=profit_targets,
+        )
     )
+    all_entries = tuple(
+        entry
+        for period_entries in entry_candidates.values()
+        for entry in period_entries
+    )
+    active_profit_targets = () if compare_entry_periods else profit_targets
     target_cache = _build_take_profit_cache(
-        entries=entry_candidates,
+        entries=all_entries,
         targets=active_profit_targets,
         m5_dataset=prepared["M5"],
         force_exit=force_exit,
@@ -153,7 +184,7 @@ def run_exit_backtest(
         trades.extend(
             _simulate_strategy(
                 strategy=strategy,
-                entries=entry_candidates,
+                entries=entry_candidates[strategy.entry_period],
                 death_candidates=death_candidates,
                 target_cache=target_cache,
                 force_exit=force_exit,
@@ -164,7 +195,6 @@ def run_exit_backtest(
             )
         )
 
-    split_at = effective_from + (effective_to - effective_from) * split_ratio
     summaries: Sequence[Mapping[str, object]] = [
         _summarize_strategy(
             strategy=strategy,
@@ -173,31 +203,43 @@ def run_exit_backtest(
                 for trade in trades
                 if trade["strategy_id"] == strategy.strategy_id
             ],
-            split_at=split_at,
             cost_mode=cost_mode,
-            include_compound_metrics=not moving_average_exits_only,
-            include_rank_fields=not moving_average_exits_only,
         )
         for strategy in strategies
     ]
-    if moving_average_exits_only:
-        summaries = _rank_summaries_by_total_profit(
-            summaries=summaries,
-            cost_mode=cost_mode,
+    summaries = _rank_summaries(
+        summaries=summaries,
+        cost_mode=cost_mode,
+        rank_by_total_profit=compare_entry_periods,
+    )
+    entry_conditions = {
+        period: f"{period}_SMA{short_period}_SMA{long_period}_golden_cross"
+        for period in entry_periods
+    }
+    entry_filter_conditions = {
+        period: "_and_".join(
+            f"{confirmation}_SMA{short_period}_gte_SMA{long_period}"
+            for confirmation in confirmation_periods[period]
         )
-    else:
-        summaries = _rank_summaries(summaries=summaries, cost_mode=cost_mode)
-    settings: Dict[str, object] = {
+        + "_at_entry"
+        for period in entry_periods
+    }
+    settings = {
         "schema_version": "1.0",
         "input_sha256": input_sha256,
         "symbol": expected_symbol.strip(),
         "moving_average_method": "SMA",
         "applied_price": "CLOSE",
         "periods": [short_period, middle_period, long_period],
-        "entry_condition": f"M30_SMA{short_period}_SMA{long_period}_golden_cross",
-        "exit_strategy_mode": (
-            "moving_average_only" if moving_average_exits_only else "all"
+        "entry_condition": (
+            entry_conditions if compare_entry_periods else entry_conditions["M30"]
         ),
+        "entry_filter_condition": (
+            entry_filter_conditions
+            if compare_entry_periods
+            else entry_filter_conditions["M30"]
+        ),
+        "profit_targets_pct": [float(target) for target in active_profit_targets],
         "point_size": point_size,
         "digits": digits,
         "cost_mode": cost_mode,
@@ -214,48 +256,34 @@ def run_exit_backtest(
         "end_bar_shift": end_bar_shift,
         "position_policy": "single_position_per_strategy",
         "additional_entry_policy": "ignore_while_position_is_open",
+        "position_sizing": "one unleveraged full-notional position per trade",
         "total_profit_unit": "raw GOLD price difference summed across trades",
-        "entry_execution": "next_M30_available_bar_open",
+        "entry_execution": (
+            "next_entry_timeframe_available_bar_open"
+            if compare_entry_periods
+            else "next_M30_available_bar_open"
+        ),
         "death_cross_execution": "next_signal_timeframe_available_bar_open",
+        "take_profit_execution": "M5_open_when_gapped_otherwise_target_price",
+        "profit_target_rounding": "ceil_to_digits",
         "force_close": "last_completed_M5_close_in_common_range",
+        "intrabar_assumption": (
+            "a death-cross open execution precedes a take-profit hit later in "
+            "the same M5 bar"
+        ),
         "time_basis": "MT5 trade server time; UTC offset is not verified",
         "effective_from": _format_datetime(effective_from),
         "effective_to": _format_datetime(effective_to),
-        "split_ratio": split_ratio,
-        "split_at": _format_datetime(split_at),
+        "ranking_basis": (
+            "spread_adjusted" if cost_mode in ("spread", "both") else "gross"
+        ),
+        "ranking_method": (
+            "total_profit descending, trade_count descending"
+            if compare_entry_periods
+            else "compounded_return_pct descending, maximum_drawdown_pct ascending, "
+            "trade_count descending"
+        ),
     }
-    if moving_average_exits_only:
-        settings.update(
-            {
-                "ranking_basis": (
-                    "spread_adjusted" if cost_mode in ("spread", "both") else "gross"
-                ),
-                "ranking_period": "overall",
-                "ranking_method": "total_profit descending, strategy_id ascending",
-            }
-        )
-    else:
-        settings.update(
-            {
-                "profit_targets_pct": [
-                    float(target) for target in active_profit_targets
-                ],
-                "position_sizing": "one unleveraged full-notional position per trade",
-                "take_profit_execution": ("M5_open_when_gapped_otherwise_target_price"),
-                "profit_target_rounding": "ceil_to_digits",
-                "intrabar_assumption": (
-                    "a death-cross open execution precedes a take-profit hit later in "
-                    "the same M5 bar"
-                ),
-                "ranking_basis": (
-                    "spread_adjusted" if cost_mode in ("spread", "both") else "gross"
-                ),
-                "ranking_method": (
-                    "compounded_return_pct descending, "
-                    "maximum_drawdown_pct ascending, trade_count descending"
-                ),
-            }
-        )
     trades_output = {
         "schema_version": "1.0",
         "input_sha256": input_sha256,
@@ -269,7 +297,17 @@ def run_exit_backtest(
         "settings": settings,
         "coverage": coverage,
         "warnings": warnings,
-        "entry_signal_count": len(entry_candidates),
+        "entry_signal_count": sum(len(items) for items in entry_candidates.values()),
+        "entry_signal_counts": {
+            period: len(entry_candidates[period]) for period in entry_periods
+        },
+        "entry_candidate_counts": {
+            period: entry_candidate_results[period][1] for period in entry_periods
+        },
+        "entry_skipped_counts": {
+            period: entry_candidate_results[period][1] - len(entry_candidates[period])
+            for period in entry_periods
+        },
         "strategy_count": len(strategies),
         "trade_count": len(trades),
         "strategies": summaries,
@@ -288,7 +326,6 @@ def _validate_options(
     end_bar_shift: int,
     scan_from: Optional[datetime],
     scan_to: Optional[datetime],
-    split_ratio: float,
     expected_symbol: str,
 ) -> Tuple[int, int, int]:
     if len(moving_average_periods) != 3:
@@ -305,6 +342,8 @@ def _validate_options(
         raise ValueError("バックテストの移動平均方式は SMA を指定してください")
     if normalize_applied_price(applied_price) != "CLOSE":
         raise ValueError("バックテストの適用価格は CLOSE を指定してください")
+    if not profit_targets:
+        raise ValueError("利益率は1件以上指定してください")
     normalized_targets = []
     for target in profit_targets:
         if isinstance(target, bool) or not isinstance(target, (int, float)):
@@ -338,13 +377,6 @@ def _validate_options(
         raise ValueError("走査終了日時はdatetimeで指定してください")
     if scan_from is not None and scan_to is not None and scan_from >= scan_to:
         raise ValueError("走査終了日時は走査開始日時より後に指定してください")
-    if (
-        isinstance(split_ratio, bool)
-        or not isinstance(split_ratio, (int, float))
-        or not math.isfinite(float(split_ratio))
-        or not 0 < split_ratio < 1
-    ):
-        raise ValueError("split_ratio は0より大きく1より小さく指定してください")
     if not isinstance(expected_symbol, str) or not expected_symbol.strip():
         raise ValueError("expected_symbol は空でない文字列で指定してください")
     return short_period, middle_period, long_period
@@ -354,6 +386,7 @@ def _prepare_datasets(
     datasets: Sequence[Mapping[str, object]],
     expected_symbol: str,
     end_bar_shift: int,
+    required_periods: Sequence[str],
 ) -> Mapping[str, PreparedDataset]:
     prepared: Dict[str, PreparedDataset] = {}
     for index, dataset in enumerate(datasets):
@@ -368,11 +401,8 @@ def _prepare_datasets(
             raise ValueError(
                 f"datasets[{index}].symbol は {expected_symbol.strip()} で指定してください"
             )
-        if (
-            not isinstance(period, str)
-            or period.strip().upper() not in REQUIRED_PERIODS
-        ):
-            choices = ", ".join(REQUIRED_PERIODS)
+        if not isinstance(period, str) or period.strip().upper() not in PERIOD_MINUTES:
+            choices = ", ".join(PERIOD_MINUTES)
             raise ValueError(
                 f"datasets[{index}].period は {choices} から指定してください"
             )
@@ -398,7 +428,7 @@ def _prepare_datasets(
             times=tuple(bar.time for bar in bars),
             index_by_time={bar.time: bar_index for bar_index, bar in enumerate(bars)},
         )
-    missing = [period for period in REQUIRED_PERIODS if period not in prepared]
+    missing = [period for period in required_periods if period not in prepared]
     if missing:
         raise ValueError(
             f"バックテストに必要な時間足が不足しています: {', '.join(missing)}"
@@ -448,18 +478,19 @@ def _validate_raw_history_order(
 def _validate_cross_results(
     cross_results: Sequence[CrossScanResult],
     expected_symbol: str,
+    required_periods: Sequence[str],
 ) -> Mapping[str, CrossScanResult]:
     result = {}
     for cross_result in cross_results:
         period = cross_result.period.strip().upper()
-        if period not in REQUIRED_PERIODS:
+        if period not in required_periods:
             continue
         if period in result:
             raise ValueError(f"クロス結果の時間足 {period} が重複しています")
         if cross_result.symbol.strip().upper() != expected_symbol.strip().upper():
             raise ValueError("履歴とクロス結果のシンボルが一致しません")
         result[period] = cross_result
-    missing = [period for period in REQUIRED_PERIODS if period not in result]
+    missing = [period for period in required_periods if period not in result]
     if missing:
         raise ValueError(f"クロス結果の時間足が不足しています: {', '.join(missing)}")
     return result
@@ -470,12 +501,13 @@ def _effective_range(
     long_period: int,
     scan_from: Optional[datetime],
     scan_to: Optional[datetime],
+    required_periods: Sequence[str],
 ) -> Tuple[datetime, datetime, Sequence[Mapping[str, object]], Sequence[str]]:
     ready_times = []
     end_times = []
     coverage = []
     warnings = []
-    for period in REQUIRED_PERIODS:
+    for period in required_periods:
         dataset = prepared[period]
         if len(dataset.usable_bars) <= long_period:
             raise ValueError(
@@ -510,7 +542,7 @@ def _effective_range(
     if scan_from is not None:
         late_periods = [
             period
-            for period in REQUIRED_PERIODS
+            for period in required_periods
             if prepared[period].bars[0].time > scan_from
         ]
         if late_periods:
@@ -558,13 +590,15 @@ def _force_exit_candidate(
 
 def _entry_candidates(
     dataset: PreparedDataset,
+    confirmation_datasets: Sequence[PreparedDataset],
     crosses: Sequence[MovingAverageCross],
     short_period: int,
     entry_comparison_period: int,
     effective_from: datetime,
     force_exit_time: datetime,
-) -> Sequence[EntryCandidate]:
+) -> Tuple[Sequence[EntryCandidate], int]:
     entries = []
+    candidate_count = 0
     usable_last_index = len(dataset.usable_bars) - 1
     for cross in crosses:
         if not (
@@ -579,18 +613,58 @@ def _entry_candidates(
         execution_bar = dataset.bars[bar_index + 1]
         if execution_bar.time < effective_from or execution_bar.time >= force_exit_time:
             continue
+        candidate_count += 1
+        if _entry_filter_blocks_purchase(
+            datasets=confirmation_datasets,
+            execution_time=execution_bar.time,
+            short_period=short_period,
+            long_period=entry_comparison_period,
+        ):
+            continue
         entries.append(
             EntryCandidate(
                 signal_bar_time=cross.bar_time,
                 signal_available_time=cross.bar_time
-                + timedelta(minutes=PERIOD_MINUTES["M30"]),
+                + timedelta(minutes=PERIOD_MINUTES[dataset.period]),
                 execution_time=execution_bar.time,
                 execution_price=execution_bar.open,
                 spread_points=execution_bar.spread,
             )
         )
     entries.sort(key=lambda entry: entry.execution_time)
-    return entries
+    return entries, candidate_count
+
+
+def _entry_filter_blocks_purchase(
+    datasets: Sequence[PreparedDataset],
+    execution_time: datetime,
+    short_period: int,
+    long_period: int,
+) -> bool:
+    for dataset in datasets:
+        completed_before = execution_time - timedelta(
+            minutes=PERIOD_MINUTES[dataset.period]
+        )
+        completed_index = bisect_right(dataset.times, completed_before) - 1
+        completed_index = min(completed_index, len(dataset.usable_bars) - 1)
+        if completed_index < long_period - 1:
+            raise ValueError(
+                f"時間足 {dataset.period} は買い判定時のSMA{long_period}に"
+                "履歴が不足しています"
+            )
+        short_start = completed_index - short_period + 1
+        long_start = completed_index - long_period + 1
+        short_average = mean(
+            dataset.usable_bars[index].close
+            for index in range(short_start, completed_index + 1)
+        )
+        long_average = mean(
+            dataset.usable_bars[index].close
+            for index in range(long_start, completed_index + 1)
+        )
+        if short_average < long_average:
+            return True
+    return False
 
 
 def _death_candidates(
@@ -600,9 +674,10 @@ def _death_candidates(
     comparison_periods: Sequence[int],
     effective_from: datetime,
     force_exit_time: datetime,
+    periods: Sequence[str],
 ) -> Mapping[Tuple[str, int], Sequence[ExitCandidate]]:
     result = {}
-    for period in REQUIRED_PERIODS:
+    for period in periods:
         dataset = prepared[period]
         usable_last_index = len(dataset.usable_bars) - 1
         for comparison_period in comparison_periods:
@@ -650,6 +725,7 @@ def _build_strategies(
             strategies.append(
                 ExitStrategy(
                     strategy_id=(f"death_{period}_{short_period}_{comparison_period}"),
+                    entry_period="M30",
                     death_period=period,
                     comparison_period=comparison_period,
                     profit_target_pct=None,
@@ -659,6 +735,7 @@ def _build_strategies(
         strategies.append(
             ExitStrategy(
                 strategy_id=f"take_profit_{_target_id(target)}",
+                entry_period="M30",
                 death_period=None,
                 comparison_period=None,
                 profit_target_pct=float(target),
@@ -673,11 +750,42 @@ def _build_strategies(
                             f"death_{period}_{short_period}_{comparison_period}"
                             f"_or_take_profit_{_target_id(target)}"
                         ),
+                        entry_period="M30",
                         death_period=period,
                         comparison_period=comparison_period,
                         profit_target_pct=float(target),
                     )
                 )
+    strategy_ids = [strategy.strategy_id for strategy in strategies]
+    if len(strategy_ids) != len(set(strategy_ids)):
+        raise ValueError("売却戦略IDが重複しています")
+    return tuple(strategies)
+
+
+def _build_entry_comparison_strategies(
+    short_period: int,
+    comparison_periods: Sequence[int],
+) -> Sequence[ExitStrategy]:
+    entry_comparison_period = comparison_periods[-1]
+    exit_periods = {
+        "M30": ("M5", "M15", "M30"),
+        "H1": ("M5", "M15", "M30", "H1"),
+    }
+    strategies = [
+        ExitStrategy(
+            strategy_id=(
+                f"long_{entry_period}_{short_period}_{entry_comparison_period}__"
+                f"death_{death_period}_{short_period}_{comparison_period}"
+            ),
+            entry_period=entry_period,
+            death_period=death_period,
+            comparison_period=comparison_period,
+            profit_target_pct=None,
+        )
+        for entry_period, periods in exit_periods.items()
+        for death_period in periods
+        for comparison_period in comparison_periods
+    ]
     strategy_ids = [strategy.strategy_id for strategy in strategies]
     if len(strategy_ids) != len(set(strategy_ids)):
         raise ValueError("売却戦略IDが重複しています")
@@ -855,6 +963,7 @@ def _build_trade(
         "trade_id": f"{strategy.strategy_id}_{sequence:04d}",
         "strategy_id": strategy.strategy_id,
         "sequence": sequence,
+        "entry_period": strategy.entry_period,
         "death_period": strategy.death_period,
         "comparison_period": strategy.comparison_period,
         "profit_target_pct": strategy.profit_target_pct,
@@ -920,93 +1029,78 @@ def _holding_extrema(
 def _summarize_strategy(
     strategy: ExitStrategy,
     trades: Sequence[Mapping[str, object]],
-    split_at: datetime,
     cost_mode: str,
-    include_compound_metrics: bool,
-    include_rank_fields: bool,
 ) -> Mapping[str, object]:
-    first = [trade for trade in trades if _trade_entry_time(trade) < split_at]
-    second = [trade for trade in trades if _trade_entry_time(trade) >= split_at]
-    periods: Dict[str, object] = {}
-    for name, selected in (("overall", trades), ("first", first), ("second", second)):
-        period_metrics: Dict[str, object] = {
-            "trade_count": len(selected),
-            "forced_close_count": sum(bool(trade["forced"]) for trade in selected),
-            "average_holding_minutes": _average_optional(
-                [float(cast(int, trade["holding_minutes"])) for trade in selected]
-            ),
-            "maximum_holding_minutes": (
-                max(cast(int, trade["holding_minutes"]) for trade in selected)
-                if selected
-                else 0
-            ),
-            "average_mfe_pct": _average_optional(
-                [
-                    cast(float, trade["maximum_favorable_excursion_pct"])
-                    for trade in selected
-                ]
-            ),
-            "average_mae_pct": _average_optional(
-                [
-                    cast(float, trade["maximum_adverse_excursion_pct"])
-                    for trade in selected
-                ]
-            ),
-        }
-        if cost_mode in ("none", "both"):
-            period_metrics["gross"] = _performance_metrics(
-                trades=selected,
-                profit_key="gross_profit",
-                return_key="gross_return_pct",
-                include_compound_metrics=include_compound_metrics,
-            )
-        if cost_mode in ("spread", "both"):
-            period_metrics["spread_adjusted"] = _performance_metrics(
-                trades=selected,
-                profit_key="spread_adjusted_profit",
-                return_key="spread_adjusted_return_pct",
-                include_compound_metrics=include_compound_metrics,
-            )
-        periods[name] = period_metrics
-    summary = {
+    period_metrics: Dict[str, object] = {
+        "trade_count": len(trades),
+        "forced_close_count": sum(bool(trade["forced"]) for trade in trades),
+        "average_holding_minutes": _average_optional(
+            [float(cast(int, trade["holding_minutes"])) for trade in trades]
+        ),
+        "maximum_holding_minutes": (
+            max(cast(int, trade["holding_minutes"]) for trade in trades)
+            if trades
+            else 0
+        ),
+        "average_mfe_pct": _average_optional(
+            [cast(float, trade["maximum_favorable_excursion_pct"]) for trade in trades]
+        ),
+        "average_mae_pct": _average_optional(
+            [cast(float, trade["maximum_adverse_excursion_pct"]) for trade in trades]
+        ),
+    }
+    if cost_mode in ("none", "both"):
+        period_metrics["gross"] = _performance_metrics(
+            trades=trades,
+            profit_key="gross_profit",
+            return_key="gross_return_pct",
+        )
+    if cost_mode in ("spread", "both"):
+        period_metrics["spread_adjusted"] = _performance_metrics(
+            trades=trades,
+            profit_key="spread_adjusted_profit",
+            return_key="spread_adjusted_return_pct",
+        )
+    return {
+        "rank": None,
+        "rank_overall": None,
         "strategy_id": strategy.strategy_id,
+        "entry_period": strategy.entry_period,
         "death_period": strategy.death_period,
         "comparison_period": strategy.comparison_period,
         "profit_target_pct": strategy.profit_target_pct,
-        "periods": periods,
+        "periods": {"overall": period_metrics},
     }
-    if include_rank_fields:
-        summary.update(
-            {
-                "rank": None,
-                "rank_overall": None,
-                "rank_first": None,
-                "rank_second": None,
-            }
-        )
-    return summary
 
 
 def _performance_metrics(
     trades: Sequence[Mapping[str, object]],
     profit_key: str,
     return_key: str,
-    include_compound_metrics: bool,
 ) -> Mapping[str, object]:
     profits = [cast(float, trade[profit_key]) for trade in trades]
     returns = [cast(float, trade[return_key]) for trade in trades]
     wins = [profit for profit in profits if profit > 0]
     losses = [profit for profit in profits if profit < 0]
+    equity = 1.0
+    peak = 1.0
+    maximum_drawdown = 0.0
+    for return_pct in returns:
+        equity *= 1 + return_pct / 100
+        peak = max(peak, equity)
+        if peak > 0:
+            maximum_drawdown = max(maximum_drawdown, (peak - equity) / peak * 100)
     profit_factor = None
     if losses:
         profit_factor = sum(wins) / abs(sum(losses))
-    metrics = {
+    return {
         "win_count": len(wins),
         "loss_count": len(losses),
         "breakeven_count": len(profits) - len(wins) - len(losses),
         "win_rate_pct": _round_metric(len(wins) / len(trades) * 100) if trades else 0.0,
         "total_profit": _round_metric(sum(profits)),
         "sum_return_pct": _round_metric(sum(returns)),
+        "compounded_return_pct": _round_metric((equity - 1) * 100),
         "average_return_pct": _round_metric(mean(returns)) if returns else None,
         "median_return_pct": _round_metric(median(returns)) if returns else None,
         "maximum_return_pct": _round_metric(max(returns)) if returns else None,
@@ -1014,28 +1108,14 @@ def _performance_metrics(
         "profit_factor": (
             _round_metric(profit_factor) if profit_factor is not None else None
         ),
+        "maximum_drawdown_pct": _round_metric(maximum_drawdown),
     }
-    if include_compound_metrics:
-        equity = 1.0
-        peak = 1.0
-        maximum_drawdown = 0.0
-        for return_pct in returns:
-            equity *= 1 + return_pct / 100
-            peak = max(peak, equity)
-            if peak > 0:
-                maximum_drawdown = max(maximum_drawdown, (peak - equity) / peak * 100)
-        metrics.update(
-            {
-                "compounded_return_pct": _round_metric((equity - 1) * 100),
-                "maximum_drawdown_pct": _round_metric(maximum_drawdown),
-            }
-        )
-    return metrics
 
 
 def _rank_summaries(
     summaries: Sequence[Mapping[str, object]],
     cost_mode: str,
+    rank_by_total_profit: bool = False,
 ) -> Sequence[Mapping[str, object]]:
     metric_name = "spread_adjusted" if cost_mode in ("spread", "both") else "gross"
 
@@ -1049,6 +1129,13 @@ def _rank_summaries(
         assert isinstance(period, Mapping)
         metrics = period[metric_name]
         assert isinstance(metrics, Mapping)
+        if rank_by_total_profit:
+            return (
+                -float(metrics["total_profit"]),
+                0.0,
+                -int(period["trade_count"]),
+                str(summary["strategy_id"]),
+            )
         return (
             -float(metrics["compounded_return_pct"]),
             float(metrics["maximum_drawdown_pct"]),
@@ -1056,55 +1143,14 @@ def _rank_summaries(
             str(summary["strategy_id"]),
         )
 
-    ranks: Dict[str, Dict[str, int]] = {}
-    for period_name in ("overall", "first", "second"):
-        period_ranked = sorted(
-            summaries,
-            key=lambda summary: key(summary, period_name),
-        )
-        for rank, summary in enumerate(period_ranked, start=1):
-            strategy_id = str(summary["strategy_id"])
-            ranks.setdefault(strategy_id, {})[period_name] = rank
-
     ranked = sorted(summaries, key=lambda summary: key(summary, "overall"))
     result = []
-    for summary in ranked:
-        item = dict(summary)
-        strategy_ranks = ranks[str(summary["strategy_id"])]
-        item["rank"] = strategy_ranks["overall"]
-        item["rank_overall"] = strategy_ranks["overall"]
-        item["rank_first"] = strategy_ranks["first"]
-        item["rank_second"] = strategy_ranks["second"]
-        result.append(item)
-    return result
-
-
-def _rank_summaries_by_total_profit(
-    summaries: Sequence[Mapping[str, object]],
-    cost_mode: str,
-) -> Sequence[Mapping[str, object]]:
-    metric_name = "spread_adjusted" if cost_mode in ("spread", "both") else "gross"
-
-    def key(summary: Mapping[str, object]) -> Tuple[float, str]:
-        periods = summary["periods"]
-        assert isinstance(periods, Mapping)
-        overall = periods["overall"]
-        assert isinstance(overall, Mapping)
-        metrics = overall[metric_name]
-        assert isinstance(metrics, Mapping)
-        return -float(metrics["total_profit"]), str(summary["strategy_id"])
-
-    result = []
-    for rank, summary in enumerate(sorted(summaries, key=key), start=1):
+    for rank, summary in enumerate(ranked, start=1):
         item = dict(summary)
         item["rank"] = rank
         item["rank_overall"] = rank
         result.append(item)
     return result
-
-
-def _trade_entry_time(trade: Mapping[str, object]) -> datetime:
-    return datetime.strptime(str(trade["entry_time"]), DATETIME_FORMAT)
 
 
 def _average_optional(values: Sequence[float]) -> Optional[float]:
